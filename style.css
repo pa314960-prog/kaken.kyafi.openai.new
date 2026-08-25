@@ -1,0 +1,641 @@
+/* ============================================================
+   「キャッフィーの琵琶湖サバイバル」の見た目
+   湖・障害物・キャラクターは game.js が <canvas> に描いています。
+   このファイルは、その上に重ねるUI(スコア・ボタン・各画面)の見た目です。
+   色を変えたい場合は、下の :root の値を書き換えるのが一番簡単です。
+   ============================================================ */
+
+:root {
+  /* 湖の色 */
+  --lake-deep:   #04202f;
+  --lake:        #0e5a86;
+  --lake-bright: #4fc3e8;
+  --foam:        #eaf8ff;
+
+  /* 陽ざしの色(アクセント) */
+  --sun:         #ffd07a;
+  --sun-bright:  #fff3d0;
+  --sun-deep:    #b57a1c;
+
+  /* キャッフィーの体色 */
+  --teal:        #23a9cc;
+
+  --text:        #eaf4fb;
+  --muted:       #9dbdd2;
+  --danger:      #ff6b6b;
+
+  --dock-bg:     rgba(5, 26, 40, .74);
+  --dock-line:   rgba(79, 195, 232, .40);
+}
+
+* { box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  min-height: 100%;
+  overflow: hidden;
+  background: var(--lake-deep);
+  color: var(--text);
+  font-family: "Zen Maru Gothic", "Hiragino Maru Gothic ProN", "Hiragino Kaku Gothic ProN",
+               "Yu Gothic", Meiryo, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+/* ------------------------------------------------------------
+   ゲーム画面(湖・障害物・キャラクター)
+   ------------------------------------------------------------ */
+#game-canvas {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  display: block;
+}
+
+.vignette {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: radial-gradient(76% 66% at 50% 46%, rgba(0,0,0,0) 44%, rgba(2,14,24,.60) 100%);
+}
+
+/* 水面から立ちのぼる泡 */
+.bubbles {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+.bubbles span {
+  position: absolute;
+  bottom: -12px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 32% 30%, rgba(255,255,255,.95), rgba(160,225,250,.32) 62%, rgba(120,200,235,0) 72%);
+  box-shadow: 0 0 8px 1px rgba(150,220,250,.35);
+  animation: rise linear infinite;
+}
+@keyframes rise {
+  0%   { transform: translateY(0) scale(.7); opacity: 0; }
+  10%  { opacity: .85; }
+  100% { transform: translateY(-78vh) scale(1.25); opacity: 0; }
+}
+.bubbles span:nth-child(1)  { left:  5%; animation-duration: 13s; animation-delay:  -1s; }
+.bubbles span:nth-child(2)  { left: 13%; animation-duration: 10s; animation-delay:  -4s; }
+.bubbles span:nth-child(3)  { left: 21%; animation-duration: 15s; animation-delay:  -8s; }
+.bubbles span:nth-child(4)  { left: 30%; animation-duration: 11s; animation-delay:  -2s; }
+.bubbles span:nth-child(5)  { left: 38%; animation-duration: 16s; animation-delay: -10s; }
+.bubbles span:nth-child(6)  { left: 47%; animation-duration:  9s; animation-delay:  -5s; }
+.bubbles span:nth-child(7)  { left: 56%; animation-duration: 14s; animation-delay:  -3s; }
+.bubbles span:nth-child(8)  { left: 64%; animation-duration: 11s; animation-delay:  -9s; }
+.bubbles span:nth-child(9)  { left: 73%; animation-duration: 17s; animation-delay:  -6s; }
+.bubbles span:nth-child(10) { left: 81%; animation-duration: 10s; animation-delay: -12s; }
+.bubbles span:nth-child(11) { left: 89%; animation-duration: 13s; animation-delay:  -2s; }
+.bubbles span:nth-child(12) { left: 96%; animation-duration: 12s; animation-delay:  -7s; }
+
+/* ------------------------------------------------------------
+   プレイ中のスコア表示
+   ------------------------------------------------------------ */
+.hud {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 4;
+  display: flex;
+  justify-content: center;
+  gap: clamp(18px, 4.5vw, 60px);
+  padding: clamp(10px, 2vh, 20px) 16px;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(3,20,32,.72) 0%, rgba(3,20,32,0) 100%);
+}
+/* display:flex が指定されていると hidden 属性だけでは消えないので、明示的に消す */
+.hud[hidden] { display: none; }
+
+.hud-item { display: grid; justify-items: center; gap: 3px; }
+
+.hud-label {
+  font-family: "Outfit", "Zen Maru Gothic", sans-serif;
+  font-size: .62rem;
+  font-weight: 600;
+  letter-spacing: .24em;
+  color: rgba(255,208,122,.85);
+}
+
+.hud-value {
+  font-family: "Outfit", "Zen Maru Gothic", sans-serif;
+  font-size: clamp(1.3rem, 3vw, 2rem);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--sun-bright);
+  text-shadow: 0 0 16px rgba(255,190,90,.45), 0 2px 6px rgba(0,0,0,.7);
+}
+.hud-unit { font-size: .6em; margin-left: .12em; color: var(--sun); }
+
+.hud-pips { display: flex; gap: 7px; padding-top: 9px; }
+.pip {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: linear-gradient(180deg, #ff9db0, #e2445f);
+  box-shadow: 0 0 12px rgba(255,110,140,.7);
+  transition: background .25s, box-shadow .25s, opacity .25s, transform .25s;
+}
+.pip.lost {
+  background: rgba(140,170,190,.22);
+  box-shadow: none;
+  opacity: .5;
+  transform: scale(.82);
+}
+
+/* ------------------------------------------------------------
+   カメラの小窓
+   ------------------------------------------------------------ */
+/* スタート画面が出ている間もカメラの様子が見えるよう、
+   カメラ小窓・操作ボタン・設定はオーバーレイ(z-index:6)より前に出しておく */
+.camera-dock {
+  position: fixed;
+  left: clamp(12px, 2vw, 26px);
+  bottom: clamp(12px, 2vh, 26px);
+  z-index: 7;
+  width: clamp(160px, 17vw, 224px);
+  padding: 8px;
+  border: 1px solid var(--dock-line);
+  border-radius: 12px;
+  background: var(--dock-bg);
+  box-shadow: 0 8px 30px rgba(0,0,0,.55), inset 0 0 24px rgba(79,195,232,.07);
+  backdrop-filter: blur(5px);
+}
+
+.dock-label {
+  font-family: "Outfit", sans-serif;
+  font-size: .56rem;
+  font-weight: 600;
+  letter-spacing: .26em;
+  color: rgba(79,195,232,.85);
+  margin-bottom: 6px;
+  text-align: center;
+}
+
+.video-wrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  background: #02121c;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+#input-video, #overlay-canvas {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+/* カメラ映像は鏡のように左右反転して表示する。
+   この反転はカメラ映像とその上の骨格表示だけに適用し、
+   ゲーム本体のキャンバス(キャラクター画像)には一切かからない。 */
+#input-video.mirrored, #overlay-canvas.mirrored { transform: scaleX(-1); }
+
+.track-badge {
+  position: absolute;
+  top: 6px; left: 6px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px 3px 6px;
+  border-radius: 999px;
+  font-size: .58rem;
+  font-weight: 700;
+  letter-spacing: .06em;
+  background: rgba(3,18,28,.78);
+  color: var(--muted);
+  backdrop-filter: blur(2px);
+}
+.track-badge::before {
+  content: "";
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--danger);
+  box-shadow: 0 0 8px var(--danger);
+}
+.track-badge[data-state="on"] { color: #b7f5cf; }
+.track-badge[data-state="on"]::before {
+  background: #4fe08c;
+  box-shadow: 0 0 9px #4fe08c;
+}
+
+.status {
+  margin: 6px 0 0;
+  min-height: 1.2em;
+  font-size: .68rem;
+  line-height: 1.35;
+  text-align: center;
+  color: var(--muted);
+}
+
+/* ------------------------------------------------------------
+   ボタン
+   ------------------------------------------------------------ */
+.controls {
+  position: fixed;
+  left: 50%;
+  top: clamp(74px, 11.5vh, 116px);
+  z-index: 7;
+  transform: translateX(-50%);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 12px;
+}
+
+.btn {
+  font-family: inherit;
+  font-size: .82rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  color: var(--foam);
+  background: linear-gradient(180deg, rgba(18,64,92,.92), rgba(6,28,44,.92));
+  border: 1px solid var(--dock-line);
+  border-radius: 999px;
+  padding: 9px 18px;
+  cursor: pointer;
+  transition: border-color .2s, box-shadow .2s, transform .12s, color .2s;
+  box-shadow: 0 4px 18px rgba(0,0,0,.45);
+  backdrop-filter: blur(3px);
+}
+.btn:hover:not(:disabled) {
+  border-color: var(--lake-bright);
+  box-shadow: 0 0 22px rgba(79,195,232,.32), 0 4px 18px rgba(0,0,0,.45);
+  transform: translateY(-1px);
+}
+.btn:active:not(:disabled) { transform: translateY(0); }
+.btn:focus-visible { outline: 2px solid var(--sun); outline-offset: 3px; }
+
+.btn-primary {
+  background: linear-gradient(180deg, #ffe6ab 0%, #f5b944 55%, #b9800f 100%);
+  color: #23180a;
+  border-color: rgba(255,243,208,.85);
+  box-shadow: 0 0 26px rgba(255,190,90,.35), 0 4px 18px rgba(0,0,0,.45);
+}
+.btn-primary:hover:not(:disabled) {
+  border-color: #fff3d0;
+  box-shadow: 0 0 30px rgba(255,200,110,.5), 0 4px 18px rgba(0,0,0,.45);
+}
+
+.btn-large {
+  font-size: 1.05rem;
+  padding: 14px 42px;
+}
+
+.btn:disabled {
+  color: rgba(157,189,210,.5);
+  background: rgba(8,28,42,.7);
+  border-color: rgba(157,189,210,.2);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+/* ------------------------------------------------------------
+   設定パネル(普段は畳んである)
+   ------------------------------------------------------------ */
+.settings-dock {
+  position: fixed;
+  right: clamp(12px, 2vw, 26px);
+  bottom: clamp(12px, 2vh, 26px);
+  z-index: 7;
+  width: clamp(214px, 22vw, 290px);
+  border: 1px solid rgba(79,195,232,.32);
+  border-radius: 12px;
+  background: rgba(5,26,40,.82);
+  backdrop-filter: blur(5px);
+  overflow: hidden;
+}
+
+.settings-dock summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 9px 14px;
+  font-size: .76rem;
+  font-weight: 700;
+  letter-spacing: .2em;
+  color: rgba(79,195,232,.9);
+}
+.settings-dock summary::-webkit-details-marker { display: none; }
+.settings-dock summary::after { content: " ▾"; opacity: .7; }
+.settings-dock[open] summary::after { content: " ▴"; }
+
+.settings {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 14px 14px;
+  font-size: .76rem;
+  color: var(--muted);
+  border-top: 1px solid rgba(79,195,232,.16);
+}
+
+.settings label { display: grid; gap: 5px; }
+.settings label.check {
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: 8px;
+  cursor: pointer;
+}
+.settings output {
+  justify-self: end;
+  margin-top: -22px;
+  font-family: "Outfit", sans-serif;
+  font-variant-numeric: tabular-nums;
+  color: var(--lake-bright);
+}
+.settings input[type="range"] { width: 100%; accent-color: var(--lake-bright); }
+.settings input[type="checkbox"] { accent-color: var(--lake-bright); margin-top: 2px; }
+
+.hint { margin: 0; font-size: .72rem; opacity: .82; line-height: 1.6; }
+.hint a { color: var(--lake-bright); }
+
+/* ------------------------------------------------------------
+   各画面(スタート / キャリブレーション / カウントダウン / 結果)
+   ------------------------------------------------------------ */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 6;
+  display: grid;
+  place-items: center;
+  /* 上端の操作ボタン(.controls)と重ならないよう、その分だけ上を空けておく */
+  padding: clamp(128px, 17vh, 168px) 24px clamp(24px, 4vh, 40px);
+  overflow-y: auto;
+  background: radial-gradient(70% 60% at 50% 45%, rgba(3,20,32,.74) 0%, rgba(2,14,24,.94) 100%);
+  backdrop-filter: blur(3px);
+  animation: fade-in .35s ease-out;
+}
+.overlay[hidden] { display: none; }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+/* 湖がよく見えるように薄くする画面 */
+.overlay-light { background: linear-gradient(180deg, rgba(2,16,26,.42), rgba(2,16,26,.66)); }
+.overlay-clear { background: none; backdrop-filter: none; pointer-events: none; }
+
+.overlay-inner {
+  display: grid;
+  justify-items: center;
+  gap: 18px;
+  max-width: min(760px, 92vw);
+  text-align: center;
+}
+
+.title { margin: 0; display: grid; gap: 8px; }
+
+.title .jp {
+  font-size: clamp(1.15rem, 3.4vw, 2.6rem);
+  font-weight: 900;
+  letter-spacing: .04em;
+  background: linear-gradient(180deg, var(--sun-bright) 0%, var(--sun) 46%, #c98a1e 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 2px 10px rgba(255,190,90,.35)) drop-shadow(0 1px 1px rgba(0,0,0,.8));
+}
+
+.title .en {
+  font-family: "Outfit", sans-serif;
+  font-size: clamp(.6rem, 1.4vw, .95rem);
+  font-weight: 600;
+  letter-spacing: .34em;
+  text-transform: uppercase;
+  color: rgba(79,195,232,.85);
+}
+
+.screen-title {
+  margin: 0;
+  font-size: clamp(1.2rem, 3.4vw, 2.1rem);
+  font-weight: 900;
+  color: var(--sun-bright);
+  text-shadow: 0 2px 14px rgba(0,0,0,.8);
+}
+.screen-title.is-error { color: #ffb3b3; }
+
+.screen-sub {
+  margin: 0;
+  font-size: clamp(.85rem, 2vw, 1.05rem);
+  line-height: 1.7;
+  color: var(--text);
+  text-shadow: 0 2px 10px rgba(0,0,0,.8);
+}
+
+.howto {
+  margin: 0;
+  padding: 0 0 0 1.4em;
+  text-align: left;
+  font-size: .88rem;
+  line-height: 1.9;
+  color: var(--text);
+}
+.howto b { color: var(--sun); }
+
+.warn {
+  margin: 0;
+  font-size: .8rem;
+  color: rgba(255,190,120,.9);
+}
+
+/* --- 難易度の選択 --- */
+.difficulty { display: grid; justify-items: center; gap: 8px; }
+
+.difficulty-label {
+  font-family: "Outfit", sans-serif;
+  font-size: .64rem;
+  font-weight: 600;
+  letter-spacing: .26em;
+  color: rgba(255,208,122,.85);
+}
+
+.difficulty-buttons { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
+
+.btn-diff {
+  display: grid;
+  gap: 2px;
+  min-width: 132px;
+  padding: 10px 18px;
+}
+.btn-diff small {
+  font-size: .64rem;
+  font-weight: 500;
+  opacity: .75;
+}
+.btn-diff.is-selected {
+  border-color: var(--sun);
+  color: var(--sun-bright);
+  box-shadow: 0 0 20px rgba(255,190,90,.3), inset 0 0 18px rgba(255,190,90,.12);
+}
+
+.best-line {
+  margin: 0;
+  font-size: .82rem;
+  color: var(--muted);
+}
+.best-line span[id$="best"], .result-best span[id$="best"] {
+  font-family: "Outfit", sans-serif;
+  font-variant-numeric: tabular-nums;
+  color: var(--sun);
+  font-weight: 700;
+}
+
+/* --- キャリブレーションのリング --- */
+.calib-ring {
+  position: relative;
+  width: clamp(120px, 22vh, 168px);
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+}
+.calib-ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.calib-track {
+  fill: none;
+  stroke: rgba(255,255,255,.16);
+  stroke-width: 7;
+}
+.calib-bar {
+  fill: none;
+  stroke: var(--sun);
+  stroke-width: 7;
+  stroke-linecap: round;
+  stroke-dasharray: 327;   /* 2πr, r=52 */
+  stroke-dashoffset: 327;
+  filter: drop-shadow(0 0 8px rgba(255,200,110,.7));
+  transition: stroke-dashoffset .1s linear;
+}
+.calib-num {
+  position: absolute;
+  font-family: "Outfit", sans-serif;
+  font-size: clamp(2.4rem, 7vh, 3.6rem);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--sun-bright);
+  text-shadow: 0 0 18px rgba(255,190,90,.55);
+}
+
+/* --- カウントダウン --- */
+.countdown-num {
+  font-family: "Outfit", sans-serif;
+  font-size: clamp(84px, 22vw, 230px);
+  font-weight: 700;
+  line-height: 1;
+  color: var(--sun-bright);
+  text-shadow: 0 0 40px rgba(255,180,70,.65), 0 8px 22px rgba(0,0,0,.85);
+  animation: pop .5s cubic-bezier(.2,1.5,.4,1);
+}
+@keyframes pop {
+  from { transform: scale(1.5); opacity: 0; }
+  to   { transform: scale(1);   opacity: 1; }
+}
+
+/* --- リザルト --- */
+.result-title {
+  margin: 0;
+  font-size: clamp(1.4rem, 4vw, 2.4rem);
+  font-weight: 900;
+  color: var(--sun-bright);
+  text-shadow: 0 2px 16px rgba(0,0,0,.8);
+}
+
+.result-grid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: clamp(20px, 5vw, 54px);
+}
+.result-grid > div { display: grid; justify-items: center; gap: 3px; }
+
+.result-label {
+  font-family: "Outfit", sans-serif;
+  font-size: .62rem;
+  font-weight: 600;
+  letter-spacing: .24em;
+  color: rgba(255,208,122,.85);
+}
+.result-value {
+  font-family: "Outfit", sans-serif;
+  font-size: clamp(1.6rem, 4.4vw, 2.6rem);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--sun-bright);
+  text-shadow: 0 0 16px rgba(255,190,90,.4);
+}
+.result-unit { font-size: .55em; margin-left: .1em; color: var(--sun); }
+
+.result-best { margin: 0; font-size: .84rem; color: var(--muted); }
+
+.new-record {
+  display: inline-block;
+  margin-left: .6em;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-family: "Outfit", sans-serif;
+  font-size: .66rem;
+  font-weight: 700;
+  letter-spacing: .12em;
+  color: #23180a;
+  background: linear-gradient(180deg, #ffe6ab, #f5b944);
+  animation: shine 1.1s ease-in-out infinite;
+}
+@keyframes shine {
+  0%,100% { box-shadow: 0 0 10px rgba(255,190,90,.5); }
+  50%     { box-shadow: 0 0 22px rgba(255,215,140,.95); }
+}
+
+.ranking-label {
+  margin: 0;
+  font-family: "Outfit", sans-serif;
+  font-size: .62rem;
+  font-weight: 600;
+  letter-spacing: .24em;
+  color: rgba(255,208,122,.85);
+}
+.ranking {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 3px;
+  font-family: "Outfit", "Zen Maru Gothic", sans-serif;
+  font-size: .92rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.ranking li { display: flex; gap: .8em; justify-content: center; }
+.ranking li .rank { color: var(--muted); min-width: 2.2em; text-align: right; }
+.ranking li.me { color: var(--sun-bright); font-weight: 700; }
+
+.result-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; }
+
+/* ------------------------------------------------------------
+   画面が狭いとき
+   ------------------------------------------------------------ */
+@media (max-width: 760px) {
+  .camera-dock { width: clamp(120px, 34vw, 160px); }
+  .settings-dock { width: clamp(170px, 44vw, 240px); }
+  .controls { top: clamp(64px, 10vh, 96px); gap: 6px; }
+  .btn { font-size: .74rem; padding: 8px 14px; }
+  .overlay { padding-top: clamp(112px, 20vh, 150px); }
+  .howto { font-size: .8rem; line-height: 1.75; }
+}
+
+@media (max-height: 620px) {
+  .camera-dock { width: clamp(120px, 16vw, 168px); }
+  .calib-ring { width: clamp(96px, 20vh, 130px); }
+}
+
+/* 動きを減らす設定にしている人には、装飾アニメーションを止める */
+@media (prefers-reduced-motion: reduce) {
+  .bubbles span, .new-record, .countdown-num { animation: none; }
+  .overlay { animation: none; }
+}
