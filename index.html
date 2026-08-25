@@ -1,0 +1,987 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>キャッフィーの琵琶湖サバイバル</title>
+<style>
+  :root{
+    color-scheme: dark;
+  }
+  html, body{
+    margin:0; padding:0; width:100%; height:100%;
+    background:#04121c; overflow:hidden;
+    font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Yu Gothic",Meiryo,sans-serif;
+    -webkit-user-select:none; user-select:none;
+  }
+  #stage{
+    position:relative; width:100vw; height:100vh; overflow:hidden;
+    background:#04121c;
+  }
+  #game{
+    position:absolute; inset:0; width:100%; height:100%; display:block;
+  }
+  /* カメラ映像はゲーム用canvasに描画するので実体videoは非表示 */
+  #video{
+    position:absolute; width:1px; height:1px; opacity:0; pointer-events:none;
+  }
+  .overlay{
+    position:absolute; inset:0;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    text-align:center; color:#fff;
+    padding:4vh 6vw; box-sizing:border-box;
+    pointer-events:none;
+  }
+  .overlay.hidden{ display:none; }
+  .overlay h1{
+    font-size:clamp(28px, 6vw, 64px);
+    margin:0 0 1.2vh 0;
+    text-shadow:0 3px 10px rgba(0,0,0,.7);
+  }
+  .overlay p{
+    font-size:clamp(16px, 3vw, 28px);
+    margin:0.4em 0;
+    line-height:1.5;
+    text-shadow:0 2px 8px rgba(0,0,0,.7);
+  }
+  .badge{
+    display:inline-block;
+    background:rgba(0,0,0,.45);
+    border:2px solid rgba(255,255,255,.6);
+    border-radius:999px;
+    padding:0.6em 1.6em;
+    margin-top:1.2em;
+    font-size:clamp(18px, 3.2vw, 30px);
+    animation:pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes pulse{
+    0%,100%{ transform:scale(1); opacity:1; }
+    50%{ transform:scale(1.05); opacity:.75; }
+  }
+  .countdown-num{
+    font-size:clamp(80px, 22vw, 220px);
+    font-weight:900;
+    text-shadow:0 6px 18px rgba(0,0,0,.8);
+  }
+  #errorScreen{
+    background:#1a0505;
+  }
+  #errorScreen h1{ color:#ff8a8a; }
+  #rankingList{
+    list-style:none; padding:0; margin:0.6em 0 0 0;
+    font-size:clamp(16px, 2.6vw, 24px);
+  }
+  #rankingList li{ margin:0.15em 0; }
+  #rankingList li.me{ color:#ffe066; font-weight:bold; }
+  .retryBtn{
+    pointer-events:auto;
+    margin-top:1.4em;
+    font-size:clamp(16px, 2.6vw, 22px);
+    padding:0.7em 1.6em;
+    border-radius:12px;
+    border:none;
+    background:#2f8fd6;
+    color:#fff;
+    cursor:pointer;
+  }
+</style>
+</head>
+<body>
+<div id="stage">
+  <video id="video" playsinline muted></video>
+  <canvas id="game"></canvas>
+
+  <!-- アイドル画面 -->
+  <div id="idleScreen" class="overlay">
+    <h1>キャッフィーの琵琶湖サバイバル</h1>
+    <p>カメラの前に立ってね</p>
+  </div>
+
+  <!-- タイトル画面 -->
+  <div id="titleScreen" class="overlay hidden">
+    <h1>キャッフィーの琵琶湖サバイバル</h1>
+    <p>体を左右に動かして障害物を避けよう</p>
+    <p>網・釣り針・釣り糸に気をつけて！</p>
+    <p>ライフは3つ、90秒間サバイバル！</p>
+    <div class="badge">両手を挙げるとスタート</div>
+  </div>
+
+  <!-- キャリブレーション画面 -->
+  <div id="calibScreen" class="overlay hidden">
+    <h1>中央に立ってください</h1>
+    <p>あなたの基準位置を計測しています…</p>
+    <div class="badge" id="calibCount">3</div>
+  </div>
+
+  <!-- カウントダウン画面 -->
+  <div id="countdownScreen" class="overlay hidden">
+    <div class="countdown-num" id="countdownNum">3</div>
+  </div>
+
+  <!-- リザルト画面 -->
+  <div id="resultScreen" class="overlay hidden">
+    <h1 id="resultTitle">サバイバル終了！</h1>
+    <p>スコア: <span id="resultScore">0</span></p>
+    <p>ランキング TOP5</p>
+    <ol id="rankingList"></ol>
+    <div class="badge">両手を挙げてもう一度</div>
+  </div>
+
+  <!-- エラー画面 -->
+  <div id="errorScreen" class="overlay hidden">
+    <h1>エラーが発生しました</h1>
+    <p id="errorMessage">内容不明のエラーです。</p>
+    <button class="retryBtn" id="retryBtn">もう一度試す</button>
+  </div>
+</div>
+
+<script type="module">
+import { PoseLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
+
+/* =========================================================================
+ *  CONFIG — 調整用パラメータはすべてここに集約する
+ * ========================================================================= */
+const CONFIG = {
+  // --- レーン ---
+  LANE_COUNT: 5,              // レーン数（3〜5推奨）
+  LANE_LERP: 0.20,            // レーン間移動の補間係数（大きいほど速く追従）
+
+  // --- 体の動き検出 ---
+  SMOOTHING_ALPHA: 0.3,       // 指数移動平均係数 smoothed = smoothed*(1-a) + raw*a
+  SHOULDER_WIDTH_LANES: 1.5,  // 肩幅の何倍ズレたら画面端に到達するか
+  CALIBRATION_SECONDS: 3,     // キャリブレーション時間（秒）
+  COUNTDOWN_SECONDS: 3,       // カウントダウン秒数
+  RAISE_HANDS_HOLD_SECONDS: 0.6,   // 両手挙げ判定に必要な保持時間
+  PERSON_DETECT_HOLD_SECONDS: 0.5, // 人物検出とみなす保持時間
+
+  // --- ライフ・時間 ---
+  MAX_LIVES: 3,
+  TIME_LIMIT_SECONDS: 90,
+  INVINCIBLE_SECONDS: 1.0,    // 被弾後の無敵時間（秒）
+
+  // --- 難易度 ---
+  OBSTACLE_SPAWN_INTERVAL_START: 1.6, // 開始時の出現間隔（秒）
+  OBSTACLE_SPAWN_INTERVAL_MIN: 0.6,   // 最短出現間隔（秒）
+  DIFFICULTY_RAMP_SECONDS: 60,        // この秒数かけて最短間隔まで難化
+  OBSTACLE_FALL_SECONDS: 1.7,         // 奥から手前に来るまでの時間（秒）
+
+  // --- スコア ---
+  SCORE_PER_SECOND: 10,       // 1秒ごとの加点
+
+  // --- キャラクター ---
+  CHARACTER_IMAGE_PATH: "assets/character.png",
+  CHARACTER_BASE_SIZE: 220,        // キャラクター画像の基準表示サイズ(px, 高さ基準)
+  CHARACTER_SCALE: 1.0,            // 追加の倍率（縦横比は常に維持）
+  CHARACTER_ISOLATION_RATIO: 0.10, // キャラ周囲に確保する余白（画像の高さに対する比率）
+  CHARACTER_Y_RATIO: 0.78,         // 画面高さに対するキャラクターの基準Y位置
+
+  // --- アイドル復帰 ---
+  RESULT_IDLE_TIMEOUT_SECONDS: 30,
+
+  // --- ランキング ---
+  RANKING_KEY: "catfish_biwako_survival_ranking_v1",
+  RANKING_MAX: 5,
+
+  // --- MediaPipe ---
+  MODEL_URL: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task",
+  WASM_URL: "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm",
+  MAX_POSES: 3,
+};
+
+/* =========================================================================
+ *  DOM 参照
+ * ========================================================================= */
+const videoEl = document.getElementById("video");
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+const screens = {
+  idle: document.getElementById("idleScreen"),
+  title: document.getElementById("titleScreen"),
+  calib: document.getElementById("calibScreen"),
+  countdown: document.getElementById("countdownScreen"),
+  result: document.getElementById("resultScreen"),
+  error: document.getElementById("errorScreen"),
+};
+const calibCountEl = document.getElementById("calibCount");
+const countdownNumEl = document.getElementById("countdownNum");
+const resultScoreEl = document.getElementById("resultScore");
+const rankingListEl = document.getElementById("rankingList");
+const errorMessageEl = document.getElementById("errorMessage");
+const retryBtn = document.getElementById("retryBtn");
+
+function showScreen(name){
+  for(const key in screens){
+    screens[key].classList.toggle("hidden", key !== name);
+  }
+}
+
+/* =========================================================================
+ *  MediaPipe PoseLandmarker のランドマーク番号
+ * ========================================================================= */
+const LM = {
+  NOSE: 0,
+  L_SHOULDER: 11, R_SHOULDER: 12,
+  L_WRIST: 15, R_WRIST: 16,
+};
+
+/* =========================================================================
+ *  キャラクター画像の読み込み（存在しなければ代替図形で継続）
+ * ========================================================================= */
+const characterImage = new Image();
+let characterImageReady = false;
+let characterImageFailed = false;
+characterImage.onload = () => { characterImageReady = true; };
+characterImage.onerror = () => { characterImageFailed = true; };
+characterImage.src = CONFIG.CHARACTER_IMAGE_PATH;
+
+/* =========================================================================
+ *  ゲーム状態
+ * ========================================================================= */
+const STATE = {
+  IDLE: "IDLE",
+  TITLE: "TITLE",
+  CALIB: "CALIB",
+  COUNTDOWN: "COUNTDOWN",
+  PLAY: "PLAY",
+  RESULT: "RESULT",
+  ERROR: "ERROR",
+};
+let state = STATE.IDLE;
+
+let W = 0, H = 0; // canvas論理サイズ
+
+// 追跡用の平滑化値
+let smoothedX = null; // 0〜1（鏡像考慮後の相対水平位置）
+
+// キャリブレーション結果
+let calib = { centerX: 0.5, shoulderWidth: 0.2 };
+
+// キャラクターのレーン位置
+let laneIndex = Math.floor(CONFIG.LANE_COUNT / 2);
+let laneIndexRaw = laneIndex;      // スナップ後（当たり判定に使う実レーン）
+let charDisplayX = 0;              // 実際の描画X（滑らかに補間）
+
+// 各種タイマー
+let stateTimer = 0;      // 現在の状態に入ってからの経過秒
+let personSeenTimer = 0; // 人物を検出し続けている秒数
+let raiseHandsTimer = 0; // 両手を挙げ続けている秒数
+let noPersonTimer = 0;   // 人物が検出できていない秒数（リザルト→アイドル復帰用）
+
+// プレイ中の状態
+let lives = CONFIG.MAX_LIVES;
+let playElapsed = 0;
+let score = 0;
+let invincibleTimer = 0;
+let hitFlashTimer = 0;
+let nextSpawnTimer = 0;
+let obstacles = []; // { lane, t(0->1進行度), kind }
+
+let lastLandmarks = null; // 直近の追跡対象人物のランドマーク
+let lastTimestampMs = 0;
+
+/* =========================================================================
+ *  キャンバスサイズ調整
+ * ========================================================================= */
+function resizeCanvas(){
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width = W;
+  canvas.height = H;
+}
+window.addEventListener("resize", resizeCanvas);
+resizeCanvas();
+
+/* =========================================================================
+ *  ランキング（localStorage）
+ * ========================================================================= */
+function loadRanking(){
+  try{
+    const raw = localStorage.getItem(CONFIG.RANKING_KEY);
+    if(!raw) return [];
+    const arr = JSON.parse(raw);
+    if(Array.isArray(arr)) return arr;
+    return [];
+  }catch(e){
+    return [];
+  }
+}
+function saveRanking(list){
+  try{
+    localStorage.setItem(CONFIG.RANKING_KEY, JSON.stringify(list));
+  }catch(e){ /* 保存できなくても致命的ではない */ }
+}
+function addRankingScore(newScore){
+  const list = loadRanking();
+  list.push(newScore);
+  list.sort((a,b) => b - a);
+  const top = list.slice(0, CONFIG.RANKING_MAX);
+  saveRanking(top);
+  return top;
+}
+function renderRanking(top, myScore){
+  rankingListEl.innerHTML = "";
+  let marked = false;
+  top.forEach((s) => {
+    const li = document.createElement("li");
+    li.textContent = `${s} 点`;
+    if(!marked && s === myScore){
+      li.classList.add("me");
+      marked = true;
+    }
+    rankingListEl.appendChild(li);
+  });
+}
+
+/* =========================================================================
+ *  エラー表示
+ * ========================================================================= */
+function showError(message){
+  state = STATE.ERROR;
+  errorMessageEl.textContent = message;
+  showScreen("error");
+}
+retryBtn.addEventListener("click", () => {
+  location.reload();
+});
+
+/* =========================================================================
+ *  カメラ初期化
+ * ========================================================================= */
+async function setupCamera(){
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    throw new Error("このブラウザはカメラに対応していません。");
+  }
+  let stream;
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: false,
+    });
+  }catch(err){
+    if(err && (err.name === "NotAllowedError" || err.name === "PermissionDeniedError")){
+      throw new Error("カメラの使用が許可されませんでした。ブラウザの設定でカメラへのアクセスを許可してから、ページを再読み込みしてください。");
+    }
+    if(err && (err.name === "NotFoundError" || err.name === "DevicesNotFoundError")){
+      throw new Error("カメラが見つかりませんでした。カメラが接続されているか確認してください。");
+    }
+    throw new Error("カメラを起動できませんでした。別のアプリがカメラを使用していないか確認してください。");
+  }
+  videoEl.srcObject = stream;
+  await videoEl.play();
+  await new Promise((resolve) => {
+    if(videoEl.readyState >= 2) return resolve();
+    videoEl.onloadeddata = () => resolve();
+  });
+}
+
+/* =========================================================================
+ *  PoseLandmarker 初期化
+ * ========================================================================= */
+let poseLandmarker = null;
+async function setupPoseLandmarker(){
+  try{
+    const filesetResolver = await FilesetResolver.forVisionTasks(CONFIG.WASM_URL);
+    poseLandmarker = await PoseLandmarker.createFromOptions(filesetResolver, {
+      baseOptions: {
+        modelAssetPath: CONFIG.MODEL_URL,
+        delegate: "GPU",
+      },
+      runningMode: "VIDEO",
+      numPoses: CONFIG.MAX_POSES,
+    });
+  }catch(err){
+    throw new Error("姿勢推定モデルの読み込みに失敗しました。通信環境を確認し、ページを再読み込みしてください。");
+  }
+}
+
+/* =========================================================================
+ *  中央に最も近い人物を選択
+ * ========================================================================= */
+function pickMainPerson(result){
+  if(!result || !result.landmarks || result.landmarks.length === 0) return null;
+  let best = null;
+  let bestDist = Infinity;
+  for(const lms of result.landmarks){
+    const ls = lms[LM.L_SHOULDER];
+    const rs = lms[LM.R_SHOULDER];
+    let cx;
+    if(ls && rs && ls.visibility !== undefined ? (ls.visibility > 0.3 && rs.visibility > 0.3) : (ls && rs)){
+      cx = (ls.x + rs.x) / 2;
+    }else if(lms[LM.NOSE]){
+      cx = lms[LM.NOSE].x;
+    }else{
+      continue;
+    }
+    const dist = Math.abs(cx - 0.5);
+    if(dist < bestDist){
+      bestDist = dist;
+      best = lms;
+    }
+  }
+  return best;
+}
+
+/* =========================================================================
+ *  ランドマークから水平位置(0〜1、鏡像考慮済み)と両肩情報を取得
+ * ========================================================================= */
+function extractHorizontal(lms){
+  const ls = lms[LM.L_SHOULDER];
+  const rs = lms[LM.R_SHOULDER];
+  const nose = lms[LM.NOSE];
+  let rawX = null;
+  let shoulderWidth = null;
+  const shouldersOk = ls && rs && (ls.visibility === undefined || (ls.visibility > 0.3 && rs.visibility > 0.3));
+  if(shouldersOk){
+    rawX = (ls.x + rs.x) / 2;
+    shoulderWidth = Math.abs(rs.x - ls.x);
+  }else if(nose){
+    rawX = nose.x;
+  }
+  if(rawX === null) return null;
+  // カメラ映像は鏡像表示するため、操作感覚を鏡と一致させる（左右反転）
+  const mirroredX = 1 - rawX;
+  return { x: mirroredX, shoulderWidth };
+}
+
+function areHandsRaised(lms){
+  const ls = lms[LM.L_SHOULDER], rs = lms[LM.R_SHOULDER];
+  const lw = lms[LM.L_WRIST], rw = lms[LM.R_WRIST];
+  if(!ls || !rs || !lw || !rw) return false;
+  return lw.y < ls.y - 0.02 && rw.y < rs.y - 0.02;
+}
+
+/* =========================================================================
+ *  レーン座標計算
+ * ========================================================================= */
+function laneCenterX(index){
+  const marginRatio = 0.14; // 画面端の余白
+  const usable = W * (1 - marginRatio * 2);
+  const step = usable / CONFIG.LANE_COUNT;
+  return W * marginRatio + step * (index + 0.5);
+}
+
+function relativeToLaneIndex(rel){
+  // rel は -SHOULDER_WIDTH_LANES 〜 +SHOULDER_WIDTH_LANES の範囲を想定
+  const clamped = Math.max(-CONFIG.SHOULDER_WIDTH_LANES, Math.min(CONFIG.SHOULDER_WIDTH_LANES, rel));
+  const t = (clamped + CONFIG.SHOULDER_WIDTH_LANES) / (CONFIG.SHOULDER_WIDTH_LANES * 2); // 0〜1
+  const idx = Math.round(t * (CONFIG.LANE_COUNT - 1));
+  return Math.max(0, Math.min(CONFIG.LANE_COUNT - 1, idx));
+}
+
+/* =========================================================================
+ *  状態遷移
+ * ========================================================================= */
+function enterState(next){
+  state = next;
+  stateTimer = 0;
+  if(next === STATE.IDLE){
+    showScreen("idle");
+  }else if(next === STATE.TITLE){
+    showScreen("title");
+  }else if(next === STATE.CALIB){
+    showScreen("calib");
+    calibSamplesX = [];
+    calibSamplesW = [];
+  }else if(next === STATE.COUNTDOWN){
+    showScreen("countdown");
+  }else if(next === STATE.PLAY){
+    // プレイ中はHTMLオーバーレイを何も重ねない（HUDはcanvasに描画）
+    for(const key in screens) screens[key].classList.add("hidden");
+    lives = CONFIG.MAX_LIVES;
+    playElapsed = 0;
+    score = 0;
+    invincibleTimer = 0;
+    obstacles = [];
+    nextSpawnTimer = CONFIG.OBSTACLE_SPAWN_INTERVAL_START;
+    laneIndex = Math.floor(CONFIG.LANE_COUNT / 2);
+    laneIndexRaw = laneIndex;
+    charDisplayX = laneCenterX(laneIndex);
+  }else if(next === STATE.RESULT){
+    showScreen("result");
+    noPersonTimer = 0;
+  }
+  raiseHandsTimer = 0;
+}
+
+/* =========================================================================
+ *  キャリブレーション用サンプル
+ * ========================================================================= */
+let calibSamplesX = [];
+let calibSamplesW = [];
+
+/* =========================================================================
+ *  障害物生成
+ * ========================================================================= */
+const OBSTACLE_KINDS = ["net", "hook", "wire"];
+function spawnObstacle(){
+  const lane = Math.floor(Math.random() * CONFIG.LANE_COUNT);
+  const kind = OBSTACLE_KINDS[Math.floor(Math.random() * OBSTACLE_KINDS.length)];
+  obstacles.push({ lane, t: 0, kind });
+}
+
+function currentSpawnInterval(){
+  const progress = Math.min(1, playElapsed / CONFIG.DIFFICULTY_RAMP_SECONDS);
+  return CONFIG.OBSTACLE_SPAWN_INTERVAL_START +
+    (CONFIG.OBSTACLE_SPAWN_INTERVAL_MIN - CONFIG.OBSTACLE_SPAWN_INTERVAL_START) * progress;
+}
+
+/* =========================================================================
+ *  更新処理
+ * ========================================================================= */
+function update(dt){
+  stateTimer += dt;
+
+  // --- 人物追跡の共通処理 ---
+  const horizontal = lastLandmarks ? extractHorizontal(lastLandmarks) : null;
+  if(lastLandmarks){
+    personSeenTimer += dt;
+    noPersonTimer = 0;
+  }else{
+    personSeenTimer = 0;
+    noPersonTimer += dt;
+  }
+
+  if(horizontal){
+    if(smoothedX === null) smoothedX = horizontal.x;
+    smoothedX = smoothedX * (1 - CONFIG.SMOOTHING_ALPHA) + horizontal.x * CONFIG.SMOOTHING_ALPHA;
+  }
+
+  const handsUp = lastLandmarks ? areHandsRaised(lastLandmarks) : false;
+  if(handsUp){ raiseHandsTimer += dt; } else { raiseHandsTimer = 0; }
+
+  switch(state){
+    case STATE.IDLE: {
+      if(personSeenTimer >= CONFIG.PERSON_DETECT_HOLD_SECONDS){
+        enterState(STATE.TITLE);
+      }
+      break;
+    }
+    case STATE.TITLE: {
+      if(personSeenTimer === 0 && stateTimer > 5){
+        // しばらく誰もいなければアイドルへ戻す
+        enterState(STATE.IDLE);
+      }
+      if(raiseHandsTimer >= CONFIG.RAISE_HANDS_HOLD_SECONDS){
+        enterState(STATE.CALIB);
+      }
+      break;
+    }
+    case STATE.CALIB: {
+      calibCountEl.textContent = Math.max(1, Math.ceil(CONFIG.CALIBRATION_SECONDS - stateTimer));
+      if(horizontal){
+        calibSamplesX.push(horizontal.x);
+        if(horizontal.shoulderWidth) calibSamplesW.push(horizontal.shoulderWidth);
+      }
+      if(personSeenTimer === 0 && stateTimer > 4){
+        enterState(STATE.TITLE);
+      }
+      if(stateTimer >= CONFIG.CALIBRATION_SECONDS){
+        if(calibSamplesX.length > 0){
+          calib.centerX = calibSamplesX.reduce((a,b) => a+b, 0) / calibSamplesX.length;
+        }
+        if(calibSamplesW.length > 0){
+          calib.shoulderWidth = calibSamplesW.reduce((a,b) => a+b, 0) / calibSamplesW.length;
+        }else{
+          calib.shoulderWidth = 0.2; // 肩が見えなかった場合の既定値
+        }
+        smoothedX = calib.centerX;
+        enterState(STATE.COUNTDOWN);
+      }
+      break;
+    }
+    case STATE.COUNTDOWN: {
+      const remain = Math.max(0, CONFIG.COUNTDOWN_SECONDS - stateTimer);
+      countdownNumEl.textContent = remain > 0 ? Math.ceil(remain) : "GO!";
+      if(stateTimer >= CONFIG.COUNTDOWN_SECONDS){
+        enterState(STATE.PLAY);
+      }
+      break;
+    }
+    case STATE.PLAY: {
+      updatePlay(dt);
+      break;
+    }
+    case STATE.RESULT: {
+      if(noPersonTimer >= CONFIG.RESULT_IDLE_TIMEOUT_SECONDS){
+        enterState(STATE.IDLE);
+      }
+      if(raiseHandsTimer >= CONFIG.RAISE_HANDS_HOLD_SECONDS){
+        enterState(STATE.CALIB);
+      }
+      break;
+    }
+  }
+
+  // --- レーン位置の更新（PLAY中以外も追従させておくと違和感が少ない） ---
+  if(smoothedX !== null){
+    const rel = (smoothedX - calib.centerX) / (calib.shoulderWidth || 0.2);
+    laneIndexRaw = relativeToLaneIndex(rel);
+  }
+  if(state === STATE.PLAY || state === STATE.COUNTDOWN){
+    laneIndex = laneIndexRaw;
+  }
+  const targetX = laneCenterX(laneIndex);
+  charDisplayX += (targetX - charDisplayX) * CONFIG.LANE_LERP;
+}
+
+function updatePlay(dt){
+  playElapsed += dt;
+  score = Math.floor(playElapsed) * CONFIG.SCORE_PER_SECOND;
+
+  if(invincibleTimer > 0) invincibleTimer = Math.max(0, invincibleTimer - dt);
+  if(hitFlashTimer > 0) hitFlashTimer = Math.max(0, hitFlashTimer - dt);
+
+  // 障害物の出現
+  nextSpawnTimer -= dt;
+  if(nextSpawnTimer <= 0){
+    spawnObstacle();
+    nextSpawnTimer = currentSpawnInterval();
+  }
+
+  // 障害物の進行・判定
+  const arriveT = 1.0;
+  for(const ob of obstacles){
+    ob.t += dt / CONFIG.OBSTACLE_FALL_SECONDS;
+  }
+  for(const ob of obstacles){
+    if(!ob.resolved && ob.t >= arriveT){
+      ob.resolved = true;
+      if(ob.lane === laneIndex && invincibleTimer <= 0){
+        lives -= 1;
+        invincibleTimer = CONFIG.INVINCIBLE_SECONDS;
+        hitFlashTimer = 0.25;
+      }
+    }
+  }
+  obstacles = obstacles.filter(ob => ob.t < arriveT + 0.15);
+
+  // 終了判定
+  if(lives <= 0 || playElapsed >= CONFIG.TIME_LIMIT_SECONDS){
+    const finalScore = score;
+    const top = addRankingScore(finalScore);
+    resultScoreEl.textContent = finalScore;
+    renderRanking(top, finalScore);
+    enterState(STATE.RESULT);
+  }
+}
+
+/* =========================================================================
+ *  描画処理
+ * ========================================================================= */
+function drawCameraBackground(){
+  if(videoEl.readyState < 2) return;
+  ctx.save();
+  ctx.globalAlpha = 0.35; // 背景として暗く薄く表示
+  // カメラ映像は鏡像表示にするため、ここだけ反転する
+  ctx.translate(W, 0);
+  ctx.scale(-1, 1);
+  const vw = videoEl.videoWidth, vh = videoEl.videoHeight;
+  if(vw && vh){
+    const scale = Math.max(W / vw, H / vh);
+    const dw = vw * scale, dh = vh * scale;
+    const dx = (W - dw) / 2, dy = (H - dh) / 2;
+    ctx.drawImage(videoEl, dx, dy, dw, dh);
+  }
+  ctx.restore();
+  // 反転をゲーム内容に持ち越さないよう、ここで変換を完全にリセットする
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+  // 見やすさのための暗幕
+  ctx.fillStyle = "rgba(2, 10, 18, 0.35)";
+  ctx.fillRect(0, 0, W, H);
+}
+
+function drawLanesGuide(){
+  ctx.save();
+  ctx.strokeStyle = "rgba(255,255,255,0.12)";
+  ctx.lineWidth = 2;
+  for(let i = 0; i <= CONFIG.LANE_COUNT; i++){
+    const marginRatio = 0.14;
+    const usable = W * (1 - marginRatio * 2);
+    const x = W * marginRatio + (usable / CONFIG.LANE_COUNT) * i;
+    ctx.beginPath();
+    ctx.moveTo(x, H * 0.25);
+    ctx.lineTo(x, H * 0.92);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+/* ---- 障害物の描画（すべて図形で自作） ---- */
+function drawObstacle(ob){
+  const x = laneCenterX(ob.lane);
+  const topY = H * 0.22;
+  const arriveY = H * CONFIG.CHARACTER_Y_RATIO;
+  const t = Math.min(1, ob.t);
+  const eased = t * t; // 奥から迫る加速感
+  const y = topY + (arriveY - topY) * eased;
+  const scale = 0.25 + 0.95 * eased;
+  const alpha = 0.5 + 0.5 * eased;
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.translate(x, y);
+  ctx.scale(scale, scale);
+
+  if(ob.kind === "net"){
+    drawNet();
+  }else if(ob.kind === "hook"){
+    drawHook();
+  }else{
+    drawWire();
+  }
+  ctx.restore();
+}
+
+function drawNet(){
+  const size = 90;
+  ctx.strokeStyle = "#b9c2c9";
+  ctx.lineWidth = 4;
+  ctx.strokeRect(-size/2, -size/2, size, size);
+  const gridN = 4;
+  for(let i = 1; i < gridN; i++){
+    const gx = -size/2 + (size/gridN) * i;
+    ctx.beginPath();
+    ctx.moveTo(gx, -size/2);
+    ctx.lineTo(gx, size/2);
+    ctx.stroke();
+    const gy = -size/2 + (size/gridN) * i;
+    ctx.beginPath();
+    ctx.moveTo(-size/2, gy);
+    ctx.lineTo(size/2, gy);
+    ctx.stroke();
+  }
+}
+
+function drawHook(){
+  ctx.strokeStyle = "#d9d9e3";
+  ctx.lineWidth = 7;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(0, -45);
+  ctx.lineTo(0, 10);
+  ctx.arc(-8, 10, 20, 0, Math.PI * 1.3, false);
+  ctx.stroke();
+  ctx.fillStyle = "#d9d9e3";
+  ctx.beginPath();
+  ctx.arc(0, -45, 5, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawWire(){
+  ctx.strokeStyle = "#cfd8dc";
+  ctx.lineWidth = 5;
+  // 左右の柱
+  ctx.beginPath();
+  ctx.moveTo(-45, -50); ctx.lineTo(-45, 50);
+  ctx.moveTo(45, -50); ctx.lineTo(45, 50);
+  ctx.stroke();
+  // 水平の糸
+  ctx.lineWidth = 2.5;
+  for(let i = -2; i <= 2; i++){
+    ctx.beginPath();
+    ctx.moveTo(-45, i * 18);
+    ctx.lineTo(45, i * 18);
+    ctx.stroke();
+  }
+}
+
+/* ---- キャラクター描画 ----
+ * 許可される変換：平行移動(translate) / 縦横比を保った拡大縮小(scale(s,s)) / 表示非表示(フェード)
+ * 禁止：回転・傾き・左右反転・非均等スケール・色変更・部分切り出し・パーツ分割・重ね描画
+ */
+function drawCharacter(){
+  // カメラ映像の反転が絶対に影響しないよう、描画直前に変換を完全リセットする
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+  const baseH = CONFIG.CHARACTER_BASE_SIZE * CONFIG.CHARACTER_SCALE;
+  const x = charDisplayX;
+  const y = H * CONFIG.CHARACTER_Y_RATIO;
+
+  // 被弾時の無敵時間中は点滅（フェードのみ、色や形状は変えない）
+  let alpha = 1;
+  if(invincibleTimer > 0){
+    alpha = (Math.floor(invincibleTimer * 10) % 2 === 0) ? 0.35 : 1;
+  }
+
+  if(characterImageReady){
+    const iw = characterImage.naturalWidth;
+    const ih = characterImage.naturalHeight;
+    const s = baseH / ih; // 縦横比を保った単一スケール値
+    const dw = iw * s;
+    const dh = ih * s;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    // translate → 均一 scale(s,s) の順のみを使用
+    ctx.translate(x - dw / 2, y - dh);
+    ctx.scale(s, s);
+    ctx.drawImage(characterImage, 0, 0, iw, ih);
+    ctx.restore();
+  }else{
+    drawCharacterFallback(x, y, baseH, alpha);
+  }
+
+}
+
+// 被弾エフェクトは画面端のみを赤く縁取るビネットとして表示し、
+// キャラクター本体やその周囲の余白には一切重ねない
+function drawHitFlash(){
+  if(hitFlashTimer <= 0) return;
+  const alpha = (hitFlashTimer / 0.25) * 0.5;
+  // キャラクターの周囲に高さの CHARACTER_ISOLATION_RATIO 分以上の余白を確保し、
+  // エフェクトがその範囲に入り込まないよう内側の半径を広めに取る
+  const baseH = CONFIG.CHARACTER_BASE_SIZE * CONFIG.CHARACTER_SCALE;
+  const safeRadius = baseH * (1 + CONFIG.CHARACTER_ISOLATION_RATIO) * 1.4;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  const grad = ctx.createRadialGradient(
+    W/2, H/2, Math.max(Math.min(W,H) * 0.55, safeRadius),
+    W/2, H/2, Math.max(W,H) * 0.75
+  );
+  grad.addColorStop(0, "rgba(255,0,0,0)");
+  grad.addColorStop(1, "rgba(255,0,0,0.9)");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+  ctx.restore();
+}
+
+// 画像が無い場合の代替図形（ナマズを連想させる単色シルエット）
+// ※ translate と 均一scale のみで配置し、回転や反転は一切行わない
+function drawCharacterFallback(x, y, baseH, alpha){
+  const s = baseH / 200; // 200pxを基準に均一スケール
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.translate(x, y);
+  ctx.scale(s, s);
+  ctx.fillStyle = "#2f7fb0";
+  ctx.strokeStyle = "#123a52";
+  ctx.lineWidth = 4;
+
+  // 涙滴型の胴体
+  ctx.beginPath();
+  ctx.moveTo(0, -180);
+  ctx.quadraticCurveTo(70, -140, 70, -60);
+  ctx.quadraticCurveTo(70, 20, 0, 20);
+  ctx.quadraticCurveTo(-70, 20, -70, -60);
+  ctx.quadraticCurveTo(-70, -140, 0, -180);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  // 目
+  ctx.fillStyle = "#0d2636";
+  ctx.beginPath();
+  ctx.arc(-24, -120, 9, 0, Math.PI * 2);
+  ctx.arc(24, -120, 9, 0, Math.PI * 2);
+  ctx.fill();
+
+  // ひげ（2本の曲線）
+  ctx.strokeStyle = "#123a52";
+  ctx.lineWidth = 5;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(-20, -70);
+  ctx.quadraticCurveTo(-90, -60, -110, -20);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(20, -70);
+  ctx.quadraticCurveTo(90, -60, 110, -20);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+/* ---- HUD ---- */
+function drawHud(){
+  ctx.save();
+  ctx.textBaseline = "top";
+  ctx.font = "bold 30px sans-serif";
+  ctx.fillStyle = "#fff";
+  ctx.strokeStyle = "rgba(0,0,0,0.6)";
+  ctx.lineWidth = 4;
+
+  const lifeText = "♥".repeat(Math.max(0, lives)) + "♡".repeat(Math.max(0, CONFIG.MAX_LIVES - lives));
+  ctx.strokeText(lifeText, 24, 20);
+  ctx.fillStyle = "#ff5d7a";
+  ctx.fillText(lifeText, 24, 20);
+
+  const remain = Math.max(0, Math.ceil(CONFIG.TIME_LIMIT_SECONDS - playElapsed));
+  const timeText = `残り ${remain} 秒`;
+  ctx.fillStyle = "#fff";
+  ctx.strokeText(timeText, W - 220, 20);
+  ctx.fillText(timeText, W - 220, 20);
+
+  const scoreText = `スコア ${score}`;
+  ctx.strokeText(scoreText, W / 2 - 90, 20);
+  ctx.fillText(scoreText, W / 2 - 90, 20);
+  ctx.restore();
+}
+
+function render(){
+  ctx.clearRect(0, 0, W, H);
+  drawCameraBackground();
+
+  if(state === STATE.PLAY || state === STATE.COUNTDOWN){
+    drawLanesGuide();
+    if(state === STATE.PLAY){
+      for(const ob of obstacles) drawObstacle(ob);
+    }
+  }
+
+  if(state !== STATE.IDLE && state !== STATE.ERROR){
+    drawCharacter();
+  }
+
+  if(state === STATE.PLAY){
+    drawHitFlash();
+    drawHud();
+  }
+}
+
+/* =========================================================================
+ *  メインループ
+ * ========================================================================= */
+let lastFrameTime = performance.now();
+function loop(now){
+  const dt = Math.min(0.05, (now - lastFrameTime) / 1000);
+  lastFrameTime = now;
+
+  if(poseLandmarker && videoEl.readyState >= 2){
+    if(now !== lastTimestampMs){
+      lastTimestampMs = now;
+      try{
+        const result = poseLandmarker.detectForVideo(videoEl, now);
+        lastLandmarks = pickMainPerson(result);
+      }catch(e){
+        lastLandmarks = null;
+      }
+    }
+  }
+
+  if(state !== STATE.ERROR){
+    update(dt);
+    render();
+  }
+
+  requestAnimationFrame(loop);
+}
+
+/* =========================================================================
+ *  起動
+ * ========================================================================= */
+async function main(){
+  try{
+    await setupCamera();
+    await setupPoseLandmarker();
+    enterState(STATE.IDLE);
+    requestAnimationFrame(loop);
+  }catch(err){
+    showError(err && err.message ? err.message : "初期化中に不明なエラーが発生しました。ページを再読み込みしてください。");
+  }
+}
+
+main();
+</script>
+</body>
+</html>
