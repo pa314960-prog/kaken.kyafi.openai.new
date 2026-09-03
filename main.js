@@ -46,6 +46,8 @@ const overlayCanvas = $("overlay-canvas");
 const overlayCtx = overlayCanvas.getContext("2d");
 const statusEl = $("status");
 const trackBadge = $("track-badge");
+const cameraReady = $("camera-ready");
+const cameraReadyText = $("camera-ready-text");
 
 const hudEl = $("hud");
 const hudScore = $("hud-score");
@@ -70,6 +72,7 @@ const btnCalibCancel = $("btn-calib-cancel");
 const btnRetry = $("btn-retry");
 const btnBackTitle = $("btn-back-title");
 const btnReload = $("btn-reload");
+const btnKeyboard = $("btn-keyboard");
 
 const calibBar = $("calib-bar");
 const calibNum = $("calib-num");
@@ -144,6 +147,7 @@ let handsTimer = 0;
 let keyboardX = 0;
 let keyboardActive = 0; // キー操作してからの残り猶予（秒）
 let keyLeft = false, keyRight = false;
+let keyboardOnly = false;
 
 let lastHudUpdate = 0;
 let lastCountdownShown = -1;
@@ -154,6 +158,7 @@ let lastCountdownShown = -1;
 function showScreen(name) {
   for (const key in screens) screens[key].hidden = key !== name;
   hudEl.hidden = name !== "play";
+  document.body.dataset.screen = name;
   updateButtons();
 }
 
@@ -166,6 +171,12 @@ function updateButtons() {
 }
 
 function setStatus(text) { statusEl.textContent = text; }
+
+function setCameraState(text, mode) {
+  if (!cameraReady || !cameraReadyText) return;
+  if (cameraReadyText.textContent !== text) cameraReadyText.textContent = text;
+  cameraReady.dataset.state = mode;
+}
 
 /* ------------------------------------------------------------
    状態遷移
@@ -267,9 +278,17 @@ function drawOverlay() {
   const wrap = overlayCanvas.parentElement;
   const cw = wrap.clientWidth, ch = wrap.clientHeight;
   if (!cw || !ch) return;
-  if (overlayCanvas.width !== cw || overlayCanvas.height !== ch) {
-    overlayCanvas.width = cw;
-    overlayCanvas.height = ch;
+  const ratio = Math.min(3, Math.max(1.5, (window.devicePixelRatio || 1) * 1.5));
+  const pixelWidth = Math.round(cw * ratio);
+  const pixelHeight = Math.round(ch * ratio);
+  if (overlayCanvas.width !== pixelWidth || overlayCanvas.height !== pixelHeight) {
+    overlayCanvas.width = pixelWidth;
+    overlayCanvas.height = pixelHeight;
+    overlayCanvas.style.width = cw + "px";
+    overlayCanvas.style.height = ch + "px";
+    overlayCtx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    overlayCtx.imageSmoothingEnabled = true;
+    overlayCtx.imageSmoothingQuality = "high";
   }
   overlayCtx.clearRect(0, 0, cw, ch);
   if (!landmarks) return;
@@ -325,13 +344,24 @@ function buildLifePips() {
 }
 function updateHud() {
   const st = Game.getStats();
-  hudScore.textContent = st.score;
-  hudTime.textContent = st.remain;
-  hudDodged.textContent = st.dodged;
+  updateHudNumber(hudScore, st.score);
+  updateHudNumber(hudTime, st.remain);
+  updateHudNumber(hudDodged, st.dodged);
   const pips = hudLives.children;
   for (let i = 0; i < pips.length; i++) {
     pips[i].classList.toggle("lost", i >= st.lives);
   }
+}
+
+function updateHudNumber(element, value) {
+  const next = String(value);
+  if (element.textContent === next) return;
+  element.textContent = next;
+  const valueWrap = element.closest(".hud-value");
+  if (!valueWrap) return;
+  valueWrap.classList.remove("is-updated");
+  void valueWrap.offsetWidth;
+  valueWrap.classList.add("is-updated");
 }
 
 /* ------------------------------------------------------------
@@ -427,6 +457,14 @@ btnCalibCancel.addEventListener("click", requestStop);
 btnRecalib.addEventListener("click", recalibrateNow);
 btnBackTitle.addEventListener("click", () => { Sound.unlock(); Sound.click(); enterState(S.TITLE); });
 btnReload.addEventListener("click", () => location.reload());
+btnKeyboard.addEventListener("click", () => {
+  Sound.unlock();
+  Sound.click();
+  keyboardOnly = true;
+  setStatus("← → キーでキャッフィーを操作できます");
+  setCameraState("キーボード操作中", "fallback");
+  enterState(S.TITLE);
+});
 
 btnSound.addEventListener("click", () => {
   Sound.unlock();
@@ -443,7 +481,11 @@ document.querySelectorAll(".btn-diff").forEach((btn) => {
     Sound.click();
     settings.difficulty = btn.dataset.difficulty;
     saveSettings();
-    document.querySelectorAll(".btn-diff").forEach((b) => b.classList.toggle("is-selected", b === btn));
+    document.querySelectorAll(".btn-diff").forEach((b) => {
+      const selected = b === btn;
+      b.classList.toggle("is-selected", selected);
+      b.setAttribute("aria-pressed", String(selected));
+    });
     Game.setDifficulty(settings.difficulty);
     refreshTitleBest();
   });
@@ -459,7 +501,9 @@ function applySettingsToUI() {
   videoEl.classList.toggle("mirrored", settings.mirror);
   overlayCanvas.classList.toggle("mirrored", settings.mirror);
   document.querySelectorAll(".btn-diff").forEach((b) => {
-    b.classList.toggle("is-selected", b.dataset.difficulty === settings.difficulty);
+    const selected = b.dataset.difficulty === settings.difficulty;
+    b.classList.toggle("is-selected", selected);
+    b.setAttribute("aria-pressed", String(selected));
   });
 }
 setSensitivity.addEventListener("input", () => {
@@ -506,7 +550,12 @@ async function setupCamera() {
   let stream;
   try {
     stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
+      video: {
+        facingMode: "user",
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+        frameRate: { ideal: 60, max: 60 },
+      },
       audio: false,
     });
   } catch (err) {
@@ -561,8 +610,12 @@ function loop(now) {
   // --- 追跡状態 ---
   if (landmarks) { personTimer += dt; } else { personTimer = 0; }
   const tracked = personTimer >= CONFIG.PERSON_HOLD_SECONDS;
-  trackBadge.dataset.state = tracked ? "on" : "off";
-  trackBadge.textContent = tracked ? "追跡中" : "未検出";
+  trackBadge.dataset.state = keyboardOnly ? "keyboard" : tracked ? "on" : "off";
+  trackBadge.textContent = keyboardOnly ? "KEYBOARD" : tracked ? "追跡中" : "未検出";
+  if (state !== S.ERROR) {
+    if (tracked) setCameraState("体を認識中", "tracking");
+    else if (poseLandmarker) setCameraState("カメラ接続", "ready");
+  }
 
   // --- 体の位置を平滑化（フレームレート非依存） ---
   const h = landmarks ? extractHorizontal(landmarks) : null;
@@ -663,7 +716,8 @@ function loop(now) {
     if (state === S.PLAY) updateHud();
     updateButtons();
     if (state !== S.ERROR) {
-      if (!tracked) setStatus("カメラの前に立ってください");
+      if (keyboardOnly) setStatus("← → キーでキャッフィーを操作できます");
+      else if (!tracked) setStatus("カメラの前に立ってください");
       else if (state === S.CALIB) setStatus("中央でじっとしていてください");
       else if (state === S.PLAY) setStatus("体を左右に動かしてよけよう");
       else setStatus("追跡できています");
@@ -697,12 +751,16 @@ async function main() {
 
   try {
     setStatus("カメラを準備しています…");
+    setCameraState("カメラ準備中", "loading");
     await setupCamera();
     setStatus("姿勢推定モデルを読み込んでいます…");
+    setCameraState("AIを準備中", "loading");
     await setupPose();
     setStatus("カメラの前に立ってください");
+    setCameraState("カメラ接続", "ready");
     enterState(S.TITLE);
   } catch (err) {
+    setCameraState("キーボード操作OK", "fallback");
     showError(err && err.message ? err.message : "初期化中に不明なエラーが発生しました。ページを再読み込みしてください。");
   }
 }

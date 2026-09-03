@@ -27,11 +27,11 @@
      プレイ中の表示(スコアなど)
      ============================================================ -->
 <div class="hud" id="hud" hidden>
-  <div class="hud-item">
+  <div class="hud-item hud-item-score">
     <span class="hud-label">SCORE</span>
     <span class="hud-value"><span id="hud-score">0</span></span>
   </div>
-  <div class="hud-item">
+  <div class="hud-item hud-item-time">
     <span class="hud-label">TIME</span>
     <span class="hud-value"><span id="hud-time">90</span><span class="hud-unit">s</span></span>
   </div>
@@ -49,20 +49,21 @@
 <!-- ============================================================
      カメラ映像(左下の小窓)
      ============================================================ -->
-<aside class="camera-dock">
+<aside class="camera-dock" aria-label="カメラ追跡状況">
   <div class="dock-label">POSE TRACKING</div>
   <div class="video-wrap">
     <video id="input-video" playsinline muted></video>
     <canvas id="overlay-canvas"></canvas>
     <div class="track-badge" id="track-badge" data-state="off">未検出</div>
   </div>
-  <p id="status" class="status">カメラを準備しています…</p>
+  <p id="status" class="status" role="status" aria-live="polite">カメラを準備しています…</p>
 </aside>
 
 <!-- ============================================================
      操作ボタン(画面上部)
      ============================================================ -->
 <nav class="controls" id="controls" aria-label="ゲーム操作">
+  <span class="controls-label" aria-hidden="true"><span></span>BIWAKO SURVIVAL</span>
   <button id="btn-start" class="btn btn-primary">▶ スタート</button>
   <button id="btn-stop" class="btn" disabled>■ ストップ</button>
   <button id="btn-recalib" class="btn" disabled>基準を合わせ直す</button>
@@ -97,42 +98,56 @@
      スタート画面
      ============================================================ -->
 <div class="overlay" id="overlay-title">
-  <div class="overlay-inner">
-    <h1 class="title">
-      <span class="jp">キャッフィーの琵琶湖サバイバル</span>
-      <span class="en">Biwako Survival</span>
-    </h1>
-
-    <ol class="howto">
-      <li>ブラウザの「カメラを許可しますか？」に <b>許可</b> を押す</li>
-      <li>カメラの前に立ち、<b>画面中央</b>で3秒待って基準位置を合わせる</li>
-      <li><b>体を左右に動かして</b>、正面から迫る網・釣り針・釣り糸をよける</li>
-      <li>ライフが尽きるか、制限時間まで生きのびるとゲーム終了</li>
-    </ol>
-
-    <p class="warn">キャッフィーはすぐには止まりません。障害物が来る前に早めに動いてください。</p>
-
-    <div class="difficulty">
-      <span class="difficulty-label">難易度</span>
-      <div class="difficulty-buttons" id="difficulty-buttons" role="group" aria-label="難易度">
-        <button class="btn btn-diff" data-difficulty="easy">
-          やさしい<small>ライフ5 / ゆっくり</small>
-        </button>
-        <button class="btn btn-diff is-selected" data-difficulty="normal">
-          ふつう<small>ライフ3 / 標準</small>
-        </button>
-        <button class="btn btn-diff" data-difficulty="hard">
-          むずかしい<small>ライフ2 / 高速</small>
-        </button>
+  <div class="overlay-inner title-layout">
+    <section class="hero-copy" aria-labelledby="game-title">
+      <p class="title-kicker"><span></span> CAMERA MOTION GAME</p>
+      <h1 class="title" id="game-title">
+        <span class="jp">キャッフィーの<br>琵琶湖サバイバル</span>
+        <span class="en">BIWAKO SURVIVAL</span>
+      </h1>
+      <p class="hero-lead">体を左右に動かして、迫ってくる障害物をよけよう。<br>カメラだけで遊べる90秒のサバイバルゲーム。</p>
+      <div class="hero-meta" aria-label="ゲーム情報">
+        <span><b>90</b> SEC</span>
+        <span><b>3</b> LEVELS</span>
+        <span><b>∞</b> CHALLENGE</span>
       </div>
-    </div>
+    </section>
 
-    <p class="best-line">
-      <span id="title-difficulty">ふつう</span> の自己最高記録: <span id="title-best">0</span>
-    </p>
+    <section class="start-card" aria-label="ゲーム開始設定">
+      <div class="start-card-heading">
+        <span class="start-card-step">HOW TO PLAY</span>
+        <span class="ready-badge" id="camera-ready" data-state="loading">
+          <span class="ready-dot"></span><span id="camera-ready-text">カメラ準備中</span>
+        </span>
+      </div>
 
-    <button id="btn-play" class="btn btn-primary btn-large">ゲーム開始</button>
-    <p class="hint">両手を挙げてもスタートできます。カメラが使えないときは ← → キーでも操作できます。</p>
+      <ol class="howto">
+        <li><span class="step-number">01</span><span><b>カメラを許可</b><small>映像は端末の外へ送信されません</small></span></li>
+        <li><span class="step-number">02</span><span><b>中央で3秒キープ</b><small>立ち位置と肩幅を自動で測定します</small></span></li>
+        <li><span class="step-number">03</span><span><b>体を左右に動かす</b><small>網・釣り針・釣り糸をよけよう</small></span></li>
+      </ol>
+
+      <div class="difficulty">
+        <span class="difficulty-label">難易度を選ぶ</span>
+        <div class="difficulty-buttons" id="difficulty-buttons" role="group" aria-label="難易度">
+          <button class="btn btn-diff" data-difficulty="easy" aria-pressed="false">
+            やさしい<small>♥ 5・ゆっくり</small>
+          </button>
+          <button class="btn btn-diff is-selected" data-difficulty="normal" aria-pressed="true">
+            ふつう<small>♥ 3・標準</small>
+          </button>
+          <button class="btn btn-diff" data-difficulty="hard" aria-pressed="false">
+            むずかしい<small>♥ 2・高速</small>
+          </button>
+        </div>
+      </div>
+
+      <div class="start-action">
+        <p class="best-line"><span id="title-difficulty">ふつう</span> ベスト <strong id="title-best">0</strong></p>
+        <button id="btn-play" class="btn btn-primary btn-large">ゲーム開始 <span aria-hidden="true">→</span></button>
+      </div>
+      <p class="hint input-hint"><kbd>←</kbd><kbd>→</kbd> キーでも操作できます</p>
+    </section>
   </div>
 </div>
 
@@ -140,7 +155,7 @@
      キャリブレーション画面
      ============================================================ -->
 <div class="overlay overlay-light" id="overlay-calib" hidden>
-  <div class="overlay-inner">
+  <div class="overlay-inner focus-panel">
     <h2 class="screen-title">画面の中央に立ってください</h2>
     <p class="screen-sub">あなたの基準位置と肩幅を計測しています</p>
     <div class="calib-ring">
@@ -167,7 +182,7 @@
      リザルト画面
      ============================================================ -->
 <div class="overlay" id="overlay-result" hidden>
-  <div class="overlay-inner">
+  <div class="overlay-inner result-panel">
     <h2 class="result-title" id="result-title">サバイバル終了！</h2>
     <div class="result-grid">
       <div>
@@ -203,10 +218,13 @@
      エラー画面
      ============================================================ -->
 <div class="overlay" id="overlay-error" hidden>
-  <div class="overlay-inner">
+  <div class="overlay-inner message-panel">
     <h2 class="screen-title is-error">エラーが発生しました</h2>
     <p class="screen-sub" id="error-message">内容不明のエラーです。</p>
-    <button id="btn-reload" class="btn btn-primary btn-large">もう一度試す</button>
+    <div class="error-actions">
+      <button id="btn-keyboard" class="btn btn-primary btn-large">キーボードで遊ぶ</button>
+      <button id="btn-reload" class="btn">カメラを再接続</button>
+    </div>
   </div>
 </div>
 

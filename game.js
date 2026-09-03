@@ -38,6 +38,11 @@ window.Game = (function () {
     bobAmplitude: 0.07,        // 水面に浮かぶ上下の揺れ（ワールド単位・平行移動のみ）
     bobHz: 0.8,
 
+    /* --- 描画品質 --- */
+    renderScale: 1.5,          // CSS上の1pxを1.5px以上で描く（通常画面でも高精細化）
+    maxPixelRatio: 3,          // Retina / 高DPI画面では最大3倍まで使う
+    maxRenderPixels: 16000000, // 大画面でのメモリ消費を抑える安全上限
+
     /* --- 動き --- */
     moveStiffness: 11.0,      // 追従バネの強さ
     moveDamping: 1.0,         // 減衰比（1.0で臨界減衰＝行き過ぎなし）
@@ -123,7 +128,10 @@ window.Game = (function () {
   function resize() {
     W = window.innerWidth;
     H = window.innerHeight;
-    dpr = Math.min(2, window.devicePixelRatio || 1);
+    var nativeRatio = Math.max(1, window.devicePixelRatio || 1);
+    var requestedRatio = Math.max(CONFIG.renderScale, nativeRatio * CONFIG.renderScale);
+    var budgetRatio = Math.sqrt(CONFIG.maxRenderPixels / Math.max(1, W * H));
+    dpr = Math.max(1, Math.min(CONFIG.maxPixelRatio, requestedRatio, budgetRatio));
     canvas.width = Math.round(W * dpr);
     canvas.height = Math.round(H * dpr);
     canvas.style.width = W + 'px';
@@ -135,6 +143,8 @@ window.Game = (function () {
     // キャラクターの足元がちょうど playerScreenRatio の高さに来るカメラ高さ
     camH = (CONFIG.playerScreenRatio - CONFIG.horizonRatio) * CONFIG.playerZ / CONFIG.focalRatio;
     base();
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
   }
 
   /* ----------------------------------------------------------

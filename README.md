@@ -191,7 +191,8 @@ function project(x, z) {
 ## 技術構成
 
 - 姿勢推定: [MediaPipe Tasks Vision](https://ai.google.dev/edge/mediapipe/solutions/vision/pose_landmarker) の `PoseLandmarker`（CDN経由で読み込み）
-- 描画: Canvas 2D（透視投影・高解像度ディスプレイ対応）
+- 描画: Canvas 2D（透視投影・最大3倍の高DPI描画・通常画面で1.5倍スーパーサンプリング）
+- カメラ: 対応機種では最大1080p / 60fpsを優先（非対応時は自動的に利用可能な画質へ調整）
 - 追従: 臨界減衰バネ + 固定ステップ積分
 - 効果音: Web Audio API による合成（音声ファイル不要）
 - 書体: Google Fonts（Zen Maru Gothic / Outfit）
